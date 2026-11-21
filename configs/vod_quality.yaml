@@ -1,0 +1,32 @@
+# CLCNet VoD recipe used by train_quality.sh on one RTX 4090
+data_folder: ../data/VoD
+quality: true
+epochs: [50, 40, 40, 40, 50]
+batch_size: 8
+gpus: "0"
+lr: 5.0e-5
+train_iters: 2
+depth_mode: lccnet
+lambda_conf: 0.2
+lambda_gate: 0.05
+ckpt_metric: t_med
+max_points: 16384
+allow_tf32: false
+pretrained_stage1: ../LCCNet/pretrained/vod_quality/vod_iter1.tar
+
+stages:
+  - name: iter1
+    max_r: 20.0
+    max_t: 1.5
+  - name: iter2
+    max_r: 10.0
+    max_t: 1.0
+  - name: iter3
+    max_r: 5.0
+    max_t: 0.5
+  - name: iter4
+    max_r: 2.0
+    max_t: 0.2
+  - name: iter5
+    max_r: 1.0
+    max_t: 0.1

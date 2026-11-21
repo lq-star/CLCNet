@@ -1,0 +1,10 @@
+# Single-stage VoD training (debug / fine range)
+data_folder: ../data/VoD
+max_r: 1.0
+max_t: 0.1
+epochs: 40
+batch_size: 16
+lr: 3.0e-4
+train_iters: 1
+lambda_conf: 0.2
+lambda_gate: 0.05
