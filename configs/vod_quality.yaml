@@ -1,12 +1,11 @@
-# CLCNet VoD recipe used by train_quality.sh on one RTX 4090
+# CLCNet VoD recipe — warm-start from LCCNet quality, fill 2x5090
 data_folder: ../data/VoD
 quality: true
 epochs: [50, 40, 40, 40, 50]
-batch_size: 8
-gpus: "0"
-lr: 5.0e-5
+batch_size: 180
+gpus: "0,1"
+lr: 3.0e-4
 train_iters: 2
-depth_mode: lccnet
 lambda_conf: 0.2
 lambda_gate: 0.05
 ckpt_metric: t_med

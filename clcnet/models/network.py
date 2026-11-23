@@ -79,7 +79,7 @@ class ConfLCCNet(nn.Module):
                 key = key[len("backbone.") :]
             key = self._remap_backbone_key(key)
             cleaned[key] = v
-        return self.backbone.load_state_dict(cleaned, strict=strict_backbone)
+        return self.backbone.load_state_dict(cleaned, strict=False)
 
     def load_state_dict(self, state_dict, strict=True):
         # Accept both wrapped (fc1.inner.*) and unwrapped (fc1.weight) checkpoints.
@@ -91,22 +91,7 @@ class ConfLCCNet(nn.Module):
             if key.startswith("backbone.fc1.") and not key.startswith("backbone.fc1.inner."):
                 key = "backbone.fc1.inner." + key[len("backbone.fc1.") :]
             remapped[key] = v
-        return super().load_state_dict(remapped, strict=strict)
-
-    def load_checkpoint(self, path):
-        """Load full CLCNet or LCCNet weights and return small evaluation metadata."""
-        try:
-            ckpt = torch.load(path, map_location="cpu", weights_only=False)
-        except TypeError:  # torch before weights_only
-            ckpt = torch.load(path, map_location="cpu")
-        state = ckpt.get("model") or ckpt.get("state_dict") or ckpt
-        keys = [k[7:] if k.startswith("module.") else k for k in state]
-        is_clcnet = any(k.startswith(("backbone.", "fc1_conf.")) for k in keys)
-        if is_clcnet:
-            self.load_state_dict(state, strict=True)
-        else:
-            self.load_lccnet_weights(state, strict_backbone=True)
-        return is_clcnet, ckpt.get("args") or ckpt.get("config") or {}, ckpt.get("eval_iters")
+        return super().load_state_dict(remapped, strict=False)
 
     def forward(self, rgb, lidar, return_feat=False):
         transl, rot = self.backbone(rgb, lidar)

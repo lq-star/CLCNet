@@ -14,24 +14,12 @@ from quaternion_distances import quaternion_distance  # noqa: E402
 from utils import quat2mat, rotate_forward, tvector2mat  # noqa: E402
 
 
-@torch.no_grad()
-def update_gain(pred_transl, pred_rot, gt_transl, gt_rot, t_scale, r_scale_deg):
-    """Relative reduction of the normalized local pose error after a full update."""
-    identity = torch.zeros_like(gt_rot)
-    identity[:, 0] = 1
-    t_scale = max(t_scale, 1e-6)
-    r_scale = max(math.radians(r_scale_deg), 1e-6)
-    before = gt_transl.norm(dim=1) / t_scale
-    before += quaternion_distance(identity, gt_rot, gt_rot.device) / r_scale
-    # inv(pred) @ GT has translation norm ||gt_t - pred_t||.
-    after = (gt_transl - pred_transl).norm(dim=1) / t_scale
-    after += quaternion_distance(pred_rot, gt_rot, gt_rot.device) / r_scale
-    return ((before - after) / torch.maximum(before, after).clamp_min(1e-6)).unsqueeze(1)
-
-
 def pose_error_target_conf(pred_transl, pred_rot, gt_transl, gt_rot, t_scale=0.2, r_scale_deg=1.0):
-    gain = update_gain(pred_transl, pred_rot, gt_transl, gt_rot, t_scale, r_scale_deg)
-    return (gain > 1e-6).to(pred_transl.dtype)
+    t_err = torch.norm(pred_transl - gt_transl, dim=1) / max(t_scale, 1e-6)
+    r_err = quaternion_distance(pred_rot, gt_rot, pred_rot.device) * 180.0 / math.pi
+    r_err = r_err / max(r_scale_deg, 1e-6)
+    e = 0.5 * (t_err + r_err)
+    return torch.exp(-e).unsqueeze(1)
 
 
 def _points_distance_loss(point_clouds, target_transl, target_rot, transl_err, rot_err, max_points=8192):
@@ -81,7 +69,7 @@ class ConfGatedCombinedLoss(nn.Module):
         self.bce = nn.BCELoss(reduction="mean")
         self.losses = {}
 
-    def pose_terms(self, point_clouds, target_transl, target_rot, transl_err, rot_err):
+    def forward(self, point_clouds, target_transl, target_rot, transl_err, rot_err, conf):
         loss_transl = self.transl_loss(transl_err, target_transl).sum(1).mean() if self.rescale_trans else transl_err.new_zeros(())
         loss_rot = quaternion_distance(rot_err, target_rot, rot_err.device).mean() if self.rescale_rot else transl_err.new_zeros(())
         pose_loss = self.rescale_trans * loss_transl + self.rescale_rot * loss_rot
@@ -94,19 +82,24 @@ class ConfGatedCombinedLoss(nn.Module):
             max_points=self.max_points if self.max_points and self.max_points > 0 else None,
         )
         pose_total = (1.0 - self.weight_point_cloud) * pose_loss + self.weight_point_cloud * pc_loss
-        return pose_total, loss_transl, loss_rot, pc_loss
 
-    def forward(self, point_clouds, target_transl, target_rot, transl_err, rot_err, conf):
-        pose_total, loss_transl, loss_rot, pc_loss = self.pose_terms(
-            point_clouds, target_transl, target_rot, transl_err, rot_err
-        )
-        gain = update_gain(transl_err, rot_err, target_transl, target_rot, self.t_scale, self.r_scale_deg)
-        conf_tgt = (gain > 1e-6).to(conf.dtype)
+        with torch.no_grad():
+            conf_tgt = pose_error_target_conf(
+                transl_err.detach(),
+                rot_err.detach(),
+                target_transl,
+                target_rot,
+                t_scale=self.t_scale,
+                r_scale_deg=self.r_scale_deg,
+            )
         conf = conf.clamp(1e-4, 1.0 - 1e-4)
         conf_loss = self.bce(conf, conf_tgt)
 
-        # Penalize rejecting a helpful update or accepting a harmful one.
-        gate_pen = ((1.0 - conf) * gain.clamp_min(0) + conf * (-gain).clamp_min(0)).mean()
+        transl_mag = torch.norm(transl_err, dim=1, keepdim=True)
+        rot_id = torch.zeros_like(rot_err)
+        rot_id[:, 0] = 1.0
+        rot_mag = quaternion_distance(rot_err, rot_id, rot_err.device).unsqueeze(1)
+        gate_pen = ((1.0 - conf) * (transl_mag / self.t_scale + rot_mag)).mean()
 
         total = pose_total + self.lambda_conf * conf_loss + self.lambda_gate * gate_pen
         self.losses = {

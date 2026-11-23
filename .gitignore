@@ -1,4 +1,5 @@
-/outputs/
 __pycache__/
 *.py[cod]
-.pytest_cache/
+/.venv/
+/outputs/
+/交底书v4.doc

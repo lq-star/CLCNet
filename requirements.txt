@@ -1,7 +1,6 @@
 torch>=1.10
 torchvision
 numpy
-matplotlib
 Pillow
 tqdm
 PyYAML
